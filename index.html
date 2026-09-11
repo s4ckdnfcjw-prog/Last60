@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>LAST 60 — Prototype</title>
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#050912;color:#fff;font-family:system-ui,-apple-system,Segoe UI,sans-serif;touch-action:none}
+canvas{display:block;width:100%;height:100%;background:#07101b}
+#hud{position:fixed;inset:0;pointer-events:none;padding:14px 16px;display:flex;justify-content:space-between;align-items:flex-start}
+.panel{background:rgba(4,9,17,.72);border:1px solid rgba(100,190,255,.22);backdrop-filter:blur(8px);border-radius:14px;padding:8px 12px;box-shadow:0 8px 30px #0008}
+#timer{font-size:25px;font-weight:900;direction:ltr}
+#objective{font-size:13px;color:#d8e8f5;margin-top:2px}
+#round{font-size:13px;color:#8ecbff}
+#toast{position:fixed;left:50%;top:18%;transform:translate(-50%,-50%);padding:12px 18px;border-radius:14px;background:#07111eec;border:1px solid #46b7ff77;font-weight:800;opacity:0;transition:.25s;pointer-events:none;white-space:nowrap}
+#menu{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:radial-gradient(circle at 50% 35%,#16334f 0,#070d17 48%,#03060b 100%);z-index:10}
+.card{width:min(92vw,460px);padding:28px;border:1px solid #49bfff33;background:#07111de8;border-radius:24px;text-align:center;box-shadow:0 25px 80px #000}
+.logo{font-size:54px;letter-spacing:3px;font-weight:1000}
+.logo span{color:#ff4658}
+.tag{color:#a9c4d9;margin:-5px 0 24px}
+button{border:0;color:#fff;background:linear-gradient(135deg,#168ed1,#7b35e7);font-size:18px;font-weight:900;padding:14px 28px;border-radius:15px;box-shadow:0 10px 30px #168ed155}
+.small{font-size:12px;color:#7f9aaf;line-height:1.7;margin-top:18px}
+#controls{position:fixed;inset:auto 0 0 0;height:180px;pointer-events:none}
+#stick{position:absolute;left:24px;bottom:24px;width:120px;height:120px;border:1px solid #a7dfff44;border-radius:50%;background:#07121dcc;pointer-events:auto}
+#knob{position:absolute;width:52px;height:52px;left:34px;top:34px;border-radius:50%;background:#79cfff88;border:1px solid #d9f4ff99}
+.action{position:absolute;right:28px;bottom:42px;width:70px;height:70px;border-radius:50%;background:#ff3f5577;border:1px solid #ff8c99aa;display:flex;align-items:center;justify-content:center;font-weight:900;pointer-events:auto}
+@media(min-width:700px){#controls{height:150px}.action{right:40px}.stick{left:40px}}
+.hidden{display:none!important}
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<div id="menu">
+ <div class="card">
+  <div class="logo">LAST <span>60</span></div>
+  <div class="tag">SAME TIME. DIFFERENT CHOICES.</div>
+  <p>أمامك 60 ثانية. اعثر على المفتاح وافتح الباب.</p>
+  <p>عندما ينتهي الوقت، يعود العالم للبداية… لكن <b>ذاكرتك تبقى.</b></p>
+  <button id="start">ابدأ الجولة الأولى</button>
+  <div class="small">نسخة تجريبية قابلة للعب • تعمل باللمس أو لوحة المفاتيح<br>WASD / الأسهم للتحرك — E للتفاعل</div>
+ </div>
+</div>
+
+<div id="hud" class="hidden">
+ <div class="panel"><div id="timer">01:00</div><div id="objective">🎯 اعثر على المفتاح</div></div>
+ <div class="panel"><div id="round">الجولة 1</div></div>
+</div>
+<div id="toast"></div>
+<div id="controls" class="hidden">
+ <div id="stick"><div id="knob"></div></div>
+ <div class="action" id="action">تفاعل</div>
+</div>
+
+<script>
+const canvas=document.getElementById('game'),ctx=canvas.getContext('2d');
+let W,H,dpr,started=false,last=0,time=60,round=1,won=false,toastT=0;
+const player={x:90,y:0,r:13,s:190,dx:0,dy:0};
+const key={x:0,y:0,taken:false};
+const door={x:0,y:0,w:58,h:90,open:false};
+const guard={x:0,y:0,r:14,phase:0};
+let memories={key:false,guard:false};
+let keys={};
+
+function resize(){dpr=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;canvas.width=W*dpr;canvas.height=H*dpr;ctx.setTransform(dpr,0,0,dpr,0,0); resetPositions()}
+addEventListener('resize',resize);
+
+function resetPositions(){
+ player.x=90; player.y=H*.72;
+ key.x=W*.57; key.y=H*.43; key.taken=memories.key;
+ door.x=W*.82; door.y=H*.25; door.open=false;
+ guard.x=W*.45; guard.y=H*.30; guard.phase=0;
+}
+function toast(s){const el=document.getElementById('toast');el.textContent=s;el.style.opacity=1;clearTimeout(toastT);toastT=setTimeout(()=>el.style.opacity=0,1300)}
+function startGame(){started=true;document.getElementById('menu').classList.add('hidden');document.getElementById('hud').classList.remove('hidden');document.getElementById('controls').classList.remove('hidden');resetPositions();time=60;round=1;memories={key:false,guard:false};won=false;last=performance.now();toast('الجولة الأولى — الوقت بدأ!');requestAnimationFrame(loop)}
+document.getElementById('start').onclick=startGame;
+
+function interact(){
+ if(!started||won)return;
+ const dist=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
+ if(!key.taken && dist(player,key)<55){key.taken=true;memories.key=true;toast('🔑 حصلت على المفتاح!')}
+ else if(key.taken && dist(player,door)<75){won=true;toast('🚪 فتحت الباب! أنت نجحت في التجربة.');setTimeout(()=>victory(),700)}
+}
+function victory(){
+ document.getElementById('menu').classList.remove('hidden');
+ document.querySelector('#menu .card').innerHTML=`<div class="logo">LEVEL <span>1</span></div>
+ <div class="tag">THE LOOP HAS BEEN BROKEN.</div>
+ <p style="font-size:22px">🎉 أحسنت!</p><p>اكتشفت أول سر في المدينة.</p>
+ <button onclick="location.reload()">العب من جديد</button>
+ <div class="small">هذه مجرد النسخة الأولى. يمكن إضافة قصة كاملة، أعداء، خرائط ومراحل في النسخة التالية.</div>`;
+ document.getElementById('hud').classList.add('hidden');document.getElementById('controls').classList.add('hidden');
+}
+
+function loop(now){
+ if(!started)return;
+ const dt=Math.min((now-last)/1000,.035);last=now;
+ if(!won){time-=dt;if(time<=0){time=60;round++;resetPositions();toast('⏱️ عاد الزمن! لكن ذاكرتك بقيت…')}}
+ update(dt);draw();updateHud();requestAnimationFrame(loop);
+}
+function update(dt){
+ let x=player.dx,y=player.dy;
+ if(x||y){let m=Math.hypot(x,y);x/=m;y/=m;player.x+=x*player.s*dt;player.y+=y*player.s*dt}
+ player.x=Math.max(28,Math.min(W-28,player.x));player.y=Math.max(100,Math.min(H-30,player.y));
+ guard.phase+=dt;
+ // guard patrol
+ guard.x=W*.46+Math.sin(guard.phase*.8)*W*.18;
+ guard.y=H*.30+Math.cos(guard.phase*1.6)*35;
+ if(Math.hypot(player.x-guard.x,player.y-guard.y)<player.r+guard.r+4){time=Math.max(0,time-3*dt)}
+}
+function updateHud(){
+ document.getElementById('timer').textContent=`00:${Math.max(0,Math.ceil(time)).toString().padStart(2,'0')}`;
+ document.getElementById('round').textContent='الجولة '+round;
+ document.getElementById('objective').textContent=key.taken?'🎯 اذهب إلى الباب':'🎯 اعثر على المفتاح';
+}
+function draw(){
+ ctx.clearRect(0,0,W,H);
+ // sky
+ let g=ctx.createLinearGradient(0,0,0,H);g.addColorStop(0,'#071522');g.addColorStop(1,'#03070d');ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+ // moon
+ ctx.fillStyle='#d9f1ff';ctx.beginPath();ctx.arc(W*.78,H*.16,32,0,Math.PI*2);ctx.fill();
+ // buildings
+ for(let i=0;i<18;i++){let bw=W/18+8,bx=i*bw,bh=80+(i*37%160);ctx.fillStyle=i%2?'#0b1825':'#0e202d';ctx.fillRect(bx,H*.38-bh,bw-3,bh);for(let y=H*.38-bh+18;y<H*.37;y+=25){ctx.fillStyle='#1d4c63';ctx.fillRect(bx+8,y,7,10);}}
+ // road
+ ctx.fillStyle='#111c25';ctx.fillRect(0,H*.38,W,H*.62);
+ // lanes
+ ctx.strokeStyle='#29404e';ctx.setLineDash([25,25]);ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(0,H*.55);ctx.lineTo(W,H*.55);ctx.stroke();ctx.setLineDash([]);
+ // alley obstacles
+ ctx.fillStyle='#182b36';ctx.fillRect(W*.10,H*.48,W*.17,35);ctx.fillRect(W*.66,H*.57,W*.18,35);
+ // door
+ ctx.fillStyle=door.open?'#48d7a0':'#4b1e2a';ctx.fillRect(door.x,door.y,door.w,door.h);
+ ctx.strokeStyle='#9de9ff';ctx.strokeRect(door.x,door.y,door.w,door.h);
+ ctx.fillStyle='#d8f8ff';ctx.font='bold 12px system-ui';ctx.fillText('EXIT',door.x+12,door.y+48);
+ // key
+ if(!key.taken){ctx.save();ctx.translate(key.x,key.y);ctx.rotate(.5);ctx.strokeStyle='#ffd84a';ctx.lineWidth=6;ctx.beginPath();ctx.arc(-7,0,9,0,Math.PI*2);ctx.stroke();ctx.beginPath();ctx.moveTo(2,0);ctx.lineTo(25,0);ctx.lineTo(25,8);ctx.moveTo(16,0);ctx.lineTo(16,7);ctx.stroke();ctx.restore()}
+ // guard vision
+ ctx.fillStyle='#ff435512';ctx.beginPath();ctx.moveTo(guard.x,guard.y);ctx.arc(guard.x,guard.y,95,-.8,.8);ctx.closePath();ctx.fill();
+ // guard
+ ctx.fillStyle='#e64c62';ctx.beginPath();ctx.arc(guard.x,guard.y,guard.r,0,Math.PI*2);ctx.fill();ctx.fillStyle='#fff';ctx.font='12px system-ui';ctx.fillText('!',guard.x-2,guard.y+4);
+ // player shadow/body
+ ctx.fillStyle='#0008';ctx.beginPath();ctx.ellipse(player.x,player.y+15,18,7,0,0,Math.PI*2);ctx.fill();
+ ctx.fillStyle='#63c8ff';ctx.beginPath();ctx.arc(player.x,player.y,player.r,0,Math.PI*2);ctx.fill();
+ ctx.fillStyle='#dff7ff';ctx.beginPath();ctx.arc(player.x+4,player.y-4,4,0,Math.PI*2);ctx.fill();
+ // memory indicator
+ if(memories.key){ctx.fillStyle='#ffd84a';ctx.font='bold 13px system-ui';ctx.fillText('MEMORY: KEY',18,H-18)}
+}
+const stick=document.getElementById('stick'),knob=document.getElementById('knob');
+let dragging=false;
+function stickMove(e){const r=stick.getBoundingClientRect(),cx=r.left+r.width/2,cy=r.top+r.height/2;let dx=e.clientX-cx,dy=e.clientY-cy;let m=Math.hypot(dx,dy),max=43;if(m>max){dx=dx/m*max;dy=dy/m*max}knob.style.transform=`translate(${dx}px,${dy}px)`;player.dx=dx/max;player.dy=dy/max}
+stick.addEventListener('pointerdown',e=>{dragging=true;stick.setPointerCapture(e.pointerId);stickMove(e)});
+stick.addEventListener('pointermove',e=>{if(dragging)stickMove(e)});
+stick.addEventListener('pointerup',()=>{dragging=false;knob.style.transform='';player.dx=player.dy=0});
+document.getElementById('action').addEventListener('pointerdown',interact);
+addEventListener('keydown',e=>{keys[e.key.toLowerCase()]=true;if(e.key.toLowerCase()==='e'||e.key===' ')interact()});
+addEventListener('keyup',e=>{keys[e.key.toLowerCase()]=false});
+setInterval(()=>{if(!dragging){let x=(keys.d||keys.arrowright?1:0)-(keys.a||keys.arrowleft?1:0),y=(keys.s||keys.arrowdown?1:0)-(keys.w||keys.arrowup?1:0);player.dx=x;player.dy=y}},30);
+resize();
+</script>
+</body>
+</html>
